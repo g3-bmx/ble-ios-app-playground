@@ -123,3 +123,34 @@ The `proximity` value (immediate/near/far) is Apple's interpretation of distance
 - Obstacles between devices
 
 UI should communicate that distance values are approximate.
+
+---
+
+## Xcode Setup (Manual Steps Required)
+
+The following steps must be completed manually in Xcode:
+
+### 1. Add Info.plist to Target
+
+If the `Info.plist` file is not automatically recognized:
+
+1. Open the project in Xcode
+2. Select the target **ble-ios-app-playground**
+3. Go to **Build Settings**
+4. Search for "Info.plist"
+5. Set **Info.plist File** to `ble-ios-app-playground/Info.plist`
+
+### 2. Enable Background Modes Capability
+
+1. Select the project in the Navigator
+2. Select the **ble-ios-app-playground** target
+3. Go to **Signing & Capabilities** tab
+4. Click **+ Capability**
+5. Search for and add **Background Modes**
+6. Check **Location updates**
+
+This enables the app to receive location updates (including beacon region events) while in the background.
+
+### 3. Verify Signing
+
+Ensure the app has a valid signing configuration with a Development Team selected, as background modes and location services require proper code signing to function on physical devices.
