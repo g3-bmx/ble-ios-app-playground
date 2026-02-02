@@ -293,7 +293,20 @@ extension BeaconManager: CLLocationManagerDelegate {
     }
 
     func locationManager(_ manager: CLLocationManager, didRange beacons: [CLBeacon], satisfying beaconConstraint: CLBeaconIdentityConstraint) {
-        detectedBeacons = beacons.sorted { $0.accuracy < $1.accuracy }
+        // Deduplicate beacons by uuid-major-minor, keeping the one with best accuracy
+        var uniqueBeacons: [String: CLBeacon] = [:]
+        for beacon in beacons {
+            let key = "\(beacon.uuid.uuidString)-\(beacon.major)-\(beacon.minor)"
+            if let existing = uniqueBeacons[key] {
+                // Keep the one with better (lower) accuracy, ignoring negative values
+                if beacon.accuracy >= 0 && (existing.accuracy < 0 || beacon.accuracy < existing.accuracy) {
+                    uniqueBeacons[key] = beacon
+                }
+            } else {
+                uniqueBeacons[key] = beacon
+            }
+        }
+        detectedBeacons = Array(uniqueBeacons.values).sorted { $0.accuracy < $1.accuracy }
     }
 
     func locationManager(_ manager: CLLocationManager, didFailRangingFor beaconConstraint: CLBeaconIdentityConstraint, error: Error) {
