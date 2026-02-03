@@ -8,12 +8,12 @@
 
 ## Context
 
-The application requires the ability to detect and respond to iBeacon devices in the environment. When a registered iBeacon is detected, the app should wake (if in background) and display information about the detected beacon including its proximity and signal strength.
+The application requires the ability to detect and respond to iBeacon devices in the environment (intercom / reader devices). When a registered iBeacon is detected, the app should wake (if in background).
 
 This feature uses Apple's CoreLocation framework to monitor and range iBeacon devices. The target beacon region uses the following UUID:
 
 ```
-E7B2C021-5D07-4D0B-9C20-223488C8B012
+GET THE UUID FROM FAISAL :)
 ```
 
 Background scanning is enabled so the app can respond to beacon proximity even when not in the foreground or when the device is locked.
