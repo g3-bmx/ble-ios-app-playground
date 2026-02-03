@@ -12,13 +12,10 @@
 		<dict/>
 		<dict/>
 	</array>
-	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>This app needs location access to detect nearby iBeacons even when running in the background or when the device is locked.</string>
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>This app needs location access to detect nearby iBeacons.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>location</string>
+		<string>bluetooth-central</string>
 	</array>
 </dict>
 </plist>

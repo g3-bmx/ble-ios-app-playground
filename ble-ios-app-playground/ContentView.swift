@@ -15,6 +15,7 @@ struct ContentView: View {
         NavigationView {
             List {
                 statusSection
+                gattClientSection
                 beaconsSection
                 eventLogSection
             }
@@ -73,6 +74,110 @@ struct ContentView: View {
                         .font(.caption)
                 }
             }
+        }
+    }
+
+    // MARK: - GATT Client Section
+
+    private var gattClientSection: some View {
+        Section("GATT Client") {
+            HStack {
+                Text("State")
+                Spacer()
+                Text(gattStateText)
+                    .foregroundColor(gattStateColor)
+            }
+
+            if let client = beaconManager.gattClient {
+                if let peripheralName = client.connectedPeripheralName {
+                    HStack {
+                        Text("Connected To")
+                        Spacer()
+                        Text(peripheralName)
+                            .foregroundColor(.secondary)
+                            .font(.caption)
+                    }
+                }
+
+                if let serviceUUID = client.discoveredServiceUUID {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Service UUID")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text(serviceUUID)
+                            .font(.caption2)
+                            .foregroundColor(.blue)
+                    }
+                }
+
+                if let charUUID = client.discoveredCharacteristicUUID {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Characteristic UUID")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text(charUUID)
+                            .font(.caption2)
+                            .foregroundColor(.blue)
+                    }
+                }
+
+                if let result = client.lastResult {
+                    HStack {
+                        Image(systemName: result.success ? "checkmark.circle.fill" : "xmark.circle.fill")
+                            .foregroundColor(result.success ? .green : .red)
+                        Text(result.message)
+                            .font(.caption)
+                            .foregroundColor(result.success ? .green : .red)
+                    }
+                }
+            }
+
+            Button(action: {
+                beaconManager.manuallyPresentCredential()
+            }) {
+                HStack {
+                    Image(systemName: "key.fill")
+                    Text("Present Credential")
+                }
+            }
+            .disabled(isGATTBusy)
+        }
+    }
+
+    private var gattStateText: String {
+        guard let client = beaconManager.gattClient else {
+            return "Idle"
+        }
+        return client.state.description
+    }
+
+    private var gattStateColor: Color {
+        guard let client = beaconManager.gattClient else {
+            return .secondary
+        }
+        switch client.state {
+        case .idle:
+            return .secondary
+        case .scanning, .connecting, .discoveringServices, .discoveringCharacteristics, .subscribing:
+            return .blue
+        case .authenticating, .sendingCredential:
+            return .orange
+        case .complete(let result):
+            return result.success ? .green : .red
+        case .failed:
+            return .red
+        }
+    }
+
+    private var isGATTBusy: Bool {
+        guard let client = beaconManager.gattClient else {
+            return false
+        }
+        switch client.state {
+        case .idle, .complete, .failed:
+            return false
+        default:
+            return true
         }
     }
 
@@ -246,6 +351,9 @@ struct EventLogRow: View {
             case .info:
                 Image(systemName: "info.circle")
                     .foregroundColor(.secondary)
+            case .gatt:
+                Image(systemName: "antenna.radiowaves.left.and.right")
+                    .foregroundColor(.cyan)
             }
         }
     }
@@ -255,6 +363,7 @@ struct EventLogRow: View {
         case .regionEnter: return .green
         case .regionExit: return .orange
         case .error: return .red
+        case .gatt: return .cyan
         default: return .primary
         }
     }

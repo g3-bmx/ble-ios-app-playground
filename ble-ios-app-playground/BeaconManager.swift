@@ -24,6 +24,7 @@ struct BeaconEvent: Identifiable, Codable {
         case authorization = "auth"
         case error = "error"
         case info = "info"
+        case gatt = "gatt"
     }
 
     init(type: EventType, message: String) {
@@ -48,6 +49,9 @@ class BeaconManager: NSObject, ObservableObject {
     @Published var isRanging: Bool = false
     @Published var eventLog: [BeaconEvent] = []
 
+    /// GATT client for credential presentation
+    @Published private(set) var gattClient: GATTClient?
+
     // MARK: - Private Properties
 
     private let locationManager = CLLocationManager()
@@ -66,6 +70,12 @@ class BeaconManager: NSObject, ObservableObject {
     private lazy var beaconIdentityConstraint: CLBeaconIdentityConstraint = {
         CLBeaconIdentityConstraint(uuid: beaconUUID)
     }()
+
+    /// Tracks whether credential has been presented since entering region (prevents re-triggering)
+    private var hasCredentialBeenPresented: Bool = false
+
+    /// Cancellable for observing GATT client state changes
+    private var gattStateCancellable: AnyCancellable?
 
     // MARK: - Initialization
 
@@ -195,6 +205,144 @@ class BeaconManager: NSObject, ObservableObject {
 
         UNUserNotificationCenter.current().add(request)
     }
+
+    // MARK: - GATT Credential Presentation
+
+    /// Presents credential via GATT if not already presented since entering region
+    private func presentCredentialIfNeeded() {
+        logger.log("┌─────────────────────────────────────────────────────────────┐")
+        logger.log("│ presentCredentialIfNeeded()                                 │")
+        logger.log("└─────────────────────────────────────────────────────────────┘")
+        logger.log("hasCredentialBeenPresented: \(self.hasCredentialBeenPresented)")
+        logger.log("isInsideRegion: \(self.isInsideRegion)")
+        logger.log("Current gattClient: \(self.gattClient == nil ? "nil" : "exists")")
+
+        guard !hasCredentialBeenPresented else {
+            logger.log("⏭️ Credential already presented since entering region, skipping")
+            logEvent(.gatt, "Skipped - credential already presented")
+            return
+        }
+
+        hasCredentialBeenPresented = true
+        logger.log("🚀 Starting GATT credential presentation")
+        logEvent(.gatt, "Starting GATT credential presentation")
+
+        // Cancel any existing GATT client before creating a new one
+        if let existingClient = gattClient {
+            logger.log("⚠️ Existing GATT client found - cancelling before creating new one")
+            existingClient.cancel()
+            gattStateCancellable?.cancel()
+        }
+
+        // Create GATT client with POC configuration
+        logger.log("Creating new GATTClient with POC configuration")
+        let client = GATTClient(config: .poc)
+        gattClient = client
+
+        // Observe state changes
+        logger.log("Setting up state change observer")
+        gattStateCancellable = client.$state
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] state in
+                self?.handleGATTStateChange(state)
+            }
+
+        // Set completion handler for notifications
+        logger.log("Setting up completion handler")
+        client.completionHandler = { [weak self] result in
+            self?.handleGATTCompletion(result)
+        }
+
+        // Start credential presentation
+        logger.log("Calling client.presentCredential()")
+        client.presentCredential()
+    }
+
+    /// Stops the GATT client and cleans up resources
+    private func stopGATTClient() {
+        logger.log("┌─────────────────────────────────────────────────────────────┐")
+        logger.log("│ stopGATTClient()                                            │")
+        logger.log("└─────────────────────────────────────────────────────────────┘")
+
+        guard let client = gattClient else {
+            logger.log("No GATT client to stop")
+            return
+        }
+
+        logger.log("Current GATT client state: \(client.state.description)")
+        logger.log("Cancelling GATT client...")
+        client.cancel()
+
+        logger.log("Cancelling state change subscription")
+        gattStateCancellable?.cancel()
+        gattStateCancellable = nil
+
+        logger.log("Clearing gattClient reference")
+        gattClient = nil
+        logger.log("✅ GATT client stopped and cleaned up")
+        logEvent(.gatt, "GATT client stopped (region exit)")
+    }
+
+    /// Handle GATT client state changes for logging
+    private func handleGATTStateChange(_ state: GATTClientState) {
+        logger.log("GATT state changed: \(state.description)")
+
+        switch state {
+        case .idle:
+            logEvent(.gatt, "GATT client idle")
+        case .scanning:
+            logEvent(.gatt, "Scanning for credential reader...")
+        case .connecting:
+            logEvent(.gatt, "Connecting to reader...")
+        case .discoveringServices:
+            logEvent(.gatt, "Discovering services...")
+        case .discoveringCharacteristics:
+            logEvent(.gatt, "Discovering characteristics...")
+        case .subscribing:
+            logEvent(.gatt, "Subscribing to notifications...")
+        case .authenticating:
+            logEvent(.gatt, "Authenticating with reader...")
+        case .sendingCredential:
+            logEvent(.gatt, "Sending credential...")
+        case .complete(let result):
+            logEvent(.gatt, "Complete: \(result.message)")
+        case .failed(let message):
+            logEvent(.error, "GATT failed: \(message)")
+        }
+    }
+
+    /// Handle GATT completion with notification
+    private func handleGATTCompletion(_ result: CredentialResult) {
+        logger.log("┌─────────────────────────────────────────────────────────────┐")
+        logger.log("│ handleGATTCompletion                                        │")
+        logger.log("└─────────────────────────────────────────────────────────────┘")
+        logger.log("Success: \(result.success)")
+        logger.log("Message: \(result.message)")
+
+        if result.success {
+            sendLocalNotification(
+                title: "Access Granted",
+                body: result.message
+            )
+            logEvent(.gatt, "Credential accepted: \(result.message)")
+        } else {
+            sendLocalNotification(
+                title: "Access Denied",
+                body: result.message
+            )
+            logEvent(.error, "Credential rejected: \(result.message)")
+        }
+    }
+
+    /// Manually trigger credential presentation (for UI button)
+    func manuallyPresentCredential() {
+        logger.log("┌─────────────────────────────────────────────────────────────┐")
+        logger.log("│ manuallyPresentCredential() - UI Button Pressed             │")
+        logger.log("└─────────────────────────────────────────────────────────────┘")
+        hasCredentialBeenPresented = false
+        logger.log("Reset hasCredentialBeenPresented to false")
+        presentCredentialIfNeeded()
+    }
 }
 
 // MARK: - CLLocationManagerDelegate
@@ -264,23 +412,43 @@ extension BeaconManager: CLLocationManagerDelegate {
     func locationManager(_ manager: CLLocationManager, didEnterRegion region: CLRegion) {
         guard region.identifier == beaconIdentifier else { return }
 
+        logger.log("┌═════════════════════════════════════════════════════════════┐")
+        logger.log("│ didEnterRegion - BEACON REGION ENTRY                        │")
+        logger.log("└═════════════════════════════════════════════════════════════┘")
+
         let timestamp = ISO8601DateFormatter().string(from: Date())
+        logger.log("🚨 Entered beacon region at: \(timestamp)")
+        logger.log("Region identifier: \(region.identifier)")
+        logger.log("Current isInsideRegion: \(self.isInsideRegion)")
+        logger.log("Current hasCredentialBeenPresented: \(self.hasCredentialBeenPresented)")
+
         logEvent(.regionEnter, "WAKE-UP: Entered beacon region at \(timestamp)")
 
         // Send notification to alert user (screen stays dark, but this shows in notification center)
+        logger.log("Sending local notification for region entry")
         sendLocalNotification(
             title: "Beacon Detected",
             body: "Entered iBeacon region"
         )
 
         isInsideRegion = true
+        logger.log("Starting ranging")
         startRanging()
+
+        // Trigger GATT credential presentation (only if not already presented since entering region)
+        logger.log("Triggering GATT credential presentation")
+        presentCredentialIfNeeded()
     }
 
     func locationManager(_ manager: CLLocationManager, didExitRegion region: CLRegion) {
         guard region.identifier == beaconIdentifier else { return }
 
+        logger.log("┌─────────────────────────────────────────────────────────────┐")
+        logger.log("│ didExitRegion                                               │")
+        logger.log("└─────────────────────────────────────────────────────────────┘")
+
         let timestamp = ISO8601DateFormatter().string(from: Date())
+        logger.log("Exited region at: \(timestamp)")
         logEvent(.regionExit, "WAKE-UP: Exited beacon region at \(timestamp)")
 
         sendLocalNotification(
@@ -290,6 +458,15 @@ extension BeaconManager: CLLocationManagerDelegate {
 
         isInsideRegion = false
         stopRanging()
+
+        // Stop any active GATT client connection
+        logger.log("Stopping GATT client due to region exit")
+        stopGATTClient()
+
+        // Reset credential presentation flag so it can be triggered again on next entry
+        hasCredentialBeenPresented = false
+        logger.log("Reset hasCredentialBeenPresented to false")
+        logEvent(.gatt, "Credential presentation reset (exited region)")
     }
 
     func locationManager(_ manager: CLLocationManager, didRange beacons: [CLBeacon], satisfying beaconConstraint: CLBeaconIdentityConstraint) {
